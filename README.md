@@ -8,8 +8,10 @@ Use the 12-way script classification dataset
 
 How to Run
 1. Clone the Repository
+```
 git clone https://github.com/codebythanos/DC_VIT.git
 cd DC_VIT
+```
 2. Install Required Libraries
 pip install numpy pandas matplotlib seaborn scikit-learn tensorflow keras jupyter
 3. Dataset Setup (Important)
@@ -31,14 +33,15 @@ dataset/
 4. Fix Paths in Notebook
 
 The notebook currently uses Kaggle paths like:
-
+```
 train_dir = '/kaggle/input/.../train_1800'
 test_dir  = '/kaggle/input/.../test_478'
-
+```
 Replace them with:
-
+```
 train_dir = 'dataset/12-way script classification dataset/train_1800'
 test_dir  = 'dataset/12-way script classification dataset/test_478'
+```
 5. Run the Notebook
 
 Start Jupyter Notebook:
