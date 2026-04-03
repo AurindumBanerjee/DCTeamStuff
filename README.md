@@ -13,8 +13,10 @@ git clone https://github.com/codebythanos/DC_VIT.git
 cd DC_VIT
 ```
 2. Install Required Libraries
+```
 pip install numpy pandas matplotlib seaborn scikit-learn tensorflow keras jupyter
-3. Dataset Setup (Important)
+```
+4. Dataset Setup (Important)
 
 Place the dataset in the following structure:
 
