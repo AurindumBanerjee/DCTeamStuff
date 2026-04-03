@@ -17,15 +17,15 @@ pip install numpy pandas matplotlib seaborn scikit-learn tensorflow keras jupyte
 Place the dataset in the following structure:
 
 dataset/
-|-- 12-way script classification dataset/
-|   |-- train_1800/
-|   |   |-- class1/
-|   |   |-- class2/
-|   |   `-- ...
-|   `-- test_478/
-|       |-- class1/
-|       |-- class2/
-|       `-- ...
+12-way script classification dataset/
+train_1800/
+class1/
+class2/
+...
+test_478/
+class1/
+class2/
+...
 4. Fix Paths in Notebook
 
 The notebook currently uses Kaggle paths like:
