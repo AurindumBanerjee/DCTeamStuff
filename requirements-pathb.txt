@@ -1,0 +1,11 @@
+# PATH B: CUDA 11.2 Compatible Dependencies
+# For CUDA 11.2 libraries installed on system
+# TensorFlow 2.10.1 supports cuDNN 8.1.x (system has 8.1.1)
+
+tensorflow==2.10.1
+numpy==1.23.5
+pandas>=1.5.0,<2.0.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+scikit-learn>=1.3.0
+pillow>=9.0.0

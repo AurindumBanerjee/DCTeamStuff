@@ -1,6 +1,29 @@
 DC_VIT
 Dataset
 
+Current Recommended Execution (this machine)
+
+Use PATH B guide for the active setup:
+- TensorFlow 2.10.1
+- Single GPU (GPU 0)
+- Script: dc-aug-3april-pathb.py
+
+Quick start:
+```
+cd /DATA/anikde/Aurindum/DCTeam/DC_VIT
+# one-time only if env is not ready
+bash setup-pathb.sh bob
+
+# run training
+nohup bash train-pathb.sh > dc-aug-3april-pathb.log 2>&1 &
+
+# monitor
+tail -f dc-aug-3april-pathb.log
+```
+
+Detailed guide:
+- README-pathb.md
+
 Download the dataset from Google Drive:
 https://drive.google.com/drive/folders/1gjdmyTR_9B7U1-W7hWugewnSowjetXYC?usp=drive_link
 
