@@ -91,6 +91,15 @@ AUTOTUNE    = tf.data.AUTOTUNE
 
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
+
+OUTPUT_DIR = Path(os.environ.get('TRAIN_OUTPUT_DIR', '.')).resolve()
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+print(f"Output directory: {OUTPUT_DIR}")
+
+
+def out_path(name):
+    return str(OUTPUT_DIR / name)
+
 print("Config ready")
 
 
@@ -261,7 +270,7 @@ def get_callbacks(name):
             verbose=1
         ),
         ModelCheckpoint(
-            name,
+            out_path(name),
             monitor='val_accuracy',
             save_best_only=True,
             verbose=1
@@ -352,7 +361,7 @@ for target in aug_targets:
         print("  " + "-" * 45)
 
         # Load Phase 1 best weights — fresh start for each config
-        model = keras.models.load_model(f'p1_{target//1000}k_best.keras')
+        model = keras.models.load_model(out_path(f'p1_{target//1000}k_best.keras'))
 
         # Unfreeze all layers
         for layer in model.layers:
@@ -381,7 +390,7 @@ for target in aug_targets:
             'lr'        : cfg['lr'],
             'dropout'   : cfg['dropout'],
             'val_acc'   : val_acc,
-            'model_path': f'p2_{target//1000}k_cfg{i+1}.keras'
+            'model_path': out_path(f'p2_{target//1000}k_cfg{i+1}.keras')
         })
 
         if val_acc > best_val_acc:
@@ -421,7 +430,7 @@ for target in aug_targets:
         plt.ylabel('True')
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
-        plt.savefig(f'cm_{target//1000}k.png', dpi=150)
+        plt.savefig(out_path(f'cm_{target//1000}k.png'), dpi=150)
         plt.close()  # Close to prevent display issues
 
         # Store test acc in results
@@ -470,5 +479,5 @@ if all_experiment_results:
     plt.title('Best Val Accuracy vs Augmentation Size')
     plt.ylim(50, 100)
     plt.tight_layout()
-    plt.savefig('aug_comparison.png', dpi=150)
+    plt.savefig(out_path('aug_comparison.png'), dpi=150)
     plt.close()

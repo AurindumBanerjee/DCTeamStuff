@@ -3,23 +3,37 @@ Dataset
 
 Current Recommended Execution (this machine)
 
-Use PATH B guide for the active setup:
+Use PATH B for the active setup:
 - TensorFlow 2.10.1
 - Single GPU (GPU 0)
-- Script: dc-aug-3april-pathb.py
+- Training entrypoint: dc-aug-3april-pathb.py
 
 Quick start:
-```
+```bash
 cd /DATA/anikde/Aurindum/DCTeam/DC_VIT
-# one-time only if env is not ready
+
+# one-time only if environment is missing or broken
 bash setup-pathb.sh bob
 
-# run training
-nohup bash train-pathb.sh > dc-aug-3april-pathb.log 2>&1 &
+# start training (train-pathb.sh already runs in background with nohup)
+bash train-pathb.sh
 
-# monitor
-tail -f dc-aug-3april-pathb.log
+# find latest run folder and watch logs
+LATEST_RUN=$(ls -dt /DATA/anikde/Aurindum/DCTeam/DC_VIT/runs/* | head -n 1)
+tail -f "$LATEST_RUN/train.log"
 ```
+
+What each step achieves:
+1. `setup-pathb.sh`: installs and verifies the compatible dependency stack.
+2. `train-pathb.sh`: exports CUDA paths, launches training in background, creates a timestamped run folder, and writes logs/checkpoints/plots there.
+3. `tail -f`: streams progress from the latest run's log file.
+
+Optional launch settings:
+1. `TRAIN_PATHB_ENV=myenv bash train-pathb.sh` uses a different conda env.
+2. `TRAIN_PATHB_RUNS_DIR=/path/to/runs bash train-pathb.sh` changes base runs directory.
+3. `TRAIN_PATHB_RUN_DIR=/path/to/custom_run bash train-pathb.sh` sets exact run directory.
+4. `TRAIN_PATHB_LOG=/path/to/custom.log bash train-pathb.sh` overrides log file path.
+5. `bash train-pathb.sh --foreground` runs interactively for debugging.
 
 Detailed guide:
 - README-pathb.md
@@ -29,7 +43,7 @@ https://drive.google.com/drive/folders/1gjdmyTR_9B7U1-W7hWugewnSowjetXYC?usp=dri
 
 Use the 12-way script classification dataset
 
-How to Run
+How to Run (Legacy Notebook Flow)
 1. Clone the Repository
 ```
 git clone https://github.com/codebythanos/DC_VIT.git

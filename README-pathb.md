@@ -15,7 +15,7 @@ This is the stable path for the current machine stack.
 - `dc-aug-3april-pathb.py`: Main training script (single GPU, float32 policy)
 - `requirements-pathb.txt`: Pinned dependencies (includes `tensorflow==2.10.1`)
 - `setup-pathb.sh`: One-time environment bootstrap/repair script
-- `train-pathb.sh`: Runtime launcher with CUDA path exports
+- `train-pathb.sh`: Runtime launcher with CUDA path exports and background logging
 
 ---
 
@@ -29,12 +29,12 @@ bash /DATA/anikde/Aurindum/DCTeam/DC_VIT/setup-pathb.sh bob
 ### 2. Run training (recommended)
 ```bash
 cd /DATA/anikde/Aurindum/DCTeam/DC_VIT
-nohup bash train-pathb.sh > dc-aug-3april-pathb.log 2>&1 &
+bash train-pathb.sh
 ```
 
 ### 3. Monitor progress
 ```bash
-tail -f /DATA/anikde/Aurindum/DCTeam/DC_VIT/dc-aug-3april-pathb.log
+tail -f /DATA/anikde/Aurindum/DCTeam/DC_VIT/runs/<timestamp>/train.log
 ```
 
 ### 4. Check process status
@@ -49,19 +49,68 @@ nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader
 
 ---
 
-## Where Results Are Saved
-All outputs are written in:
-`/DATA/anikde/Aurindum/DCTeam/DC_VIT`
+## What Each Section Achieves
 
-Expected artifacts:
+### Setup section
+Prepares the environment with compatible versions and verifies TensorFlow can see GPUs.
+
+### Run section
+Starts the training job via a stable launcher that sets CUDA-related paths, creates a unique timestamped run folder, and writes logs there.
+
+### Monitor section
+Lets you observe progress, detect stalls, and confirm active epochs/configurations.
+
+### Process/GPU check section
+Confirms that the job is alive and that GPU memory/compute are actually being used.
+
+### Results section
+Defines where models and plots are saved so you can collect final artifacts quickly.
+
+---
+
+## Where Results Are Saved
+Each launch creates a unique run folder:
+`/DATA/anikde/Aurindum/DCTeam/DC_VIT/runs/YYYYMMDD_HHMMSS`
+
+Expected artifacts inside that run folder:
+- Log: `train.log`
 - Models: `p1_*_best.keras`, `p2_*_cfg*.keras`
 - Confusion matrices: `cm_5k.png`, `cm_10k.png`, `cm_20k.png`, `cm_50k.png`
 - Comparison chart: `aug_comparison.png`
 
 ---
 
-## Do You Still Need `setup-pathb.sh`?
-Use it only when needed:
+## Launcher Optionalities
+
+### Foreground debug mode
+```bash
+cd /DATA/anikde/Aurindum/DCTeam/DC_VIT
+bash train-pathb.sh --foreground
+```
+
+### Use a different conda environment
+```bash
+TRAIN_PATHB_ENV=myenv bash /DATA/anikde/Aurindum/DCTeam/DC_VIT/train-pathb.sh
+```
+
+### Change base runs directory
+```bash
+TRAIN_PATHB_RUNS_DIR=/path/to/runs bash /DATA/anikde/Aurindum/DCTeam/DC_VIT/train-pathb.sh
+```
+
+### Force an exact run directory
+```bash
+TRAIN_PATHB_RUN_DIR=/path/to/runs/manual_run_01 bash /DATA/anikde/Aurindum/DCTeam/DC_VIT/train-pathb.sh
+```
+
+### Override log file path
+```bash
+TRAIN_PATHB_LOG=/path/to/custom.log bash /DATA/anikde/Aurindum/DCTeam/DC_VIT/train-pathb.sh
+```
+
+---
+
+Use setup-pathb.sh only when needed:
 - Yes, if this is a fresh environment or dependencies changed/broke.
 - No, for routine reruns once the environment is already working.
 
