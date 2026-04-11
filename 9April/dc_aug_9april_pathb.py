@@ -1,14 +1,4 @@
 # PATH B: CUDA 12.2 Compatible Version (Current NVIDIA Driver 535)
-#
-# SETUP INSTRUCTIONS:
-# 1. Install compatible packages:
-#    conda run -n bob pip install torch torchvision timm scikit-learn pandas matplotlib seaborn
-#
-# 2. Run with proper environment cleanup:
-#    conda run -n bob env -u LD_LIBRARY_PATH python dc-aug-fixed-pathb.py > dc-aug-fixed-pathb.log 2>&1 &
-#
-# 3. Verify GPU detection before training:
-#    conda run -n bob python -c "import torch; print('GPUs:', torch.cuda.device_count())"
 
 #!/usr/bin/env python
 # coding: utf-8
@@ -65,11 +55,11 @@ print("="*70)
 train_dir   = '/DATA/anikde/Aurindum/DCTeam/data/train_1800'
 test_dir    = '/DATA/anikde/Aurindum/DCTeam/data/test_478'
 
-IMG_SIZE    = 224
-BATCH_SIZE  = 32
-NUM_CLASSES = 12
-SEED        = 42
-LR          = 1e-3
+IMG_SIZE        = 224
+BATCH_SIZE      = 32
+NUM_CLASSES     = 12
+SEED            = 42
+LR              = 1e-3
 LABEL_SMOOTHING = 0.1
 
 np.random.seed(SEED)
@@ -80,6 +70,9 @@ if torch.cuda.is_available():
 OUTPUT_DIR = Path(os.environ.get('TRAIN_OUTPUT_DIR', '.')).resolve()
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 print(f"Output directory: {OUTPUT_DIR}")
+
+# Single checkpoint — only the globally best model is ever on disk
+BEST_CKPT = str(OUTPUT_DIR / 'best_overall.pt')
 
 def out_path(name):
     return str(OUTPUT_DIR / name)
@@ -111,7 +104,6 @@ print("Augmentation pipeline ready")
 
 # ────────────────────────────────────────────────────────────────
 # DATASET
-# FIX: Split on REAL images FIRST, then augment only train split.
 # ────────────────────────────────────────────────────────────────
 class ImageDataset(Dataset):
     def __init__(self, paths, labels, transform=None, aug_flags=None):
@@ -136,7 +128,6 @@ def build_dataset(data_dir, target_per_class=None, training=True):
     cls_names  = [d.name for d in class_dirs]
     cls_to_idx = {name: idx for idx, name in enumerate(cls_names)}
 
-    # Collect REAL images only
     real_paths, real_labels = [], []
     for class_dir in class_dirs:
         label = cls_to_idx[class_dir.name]
@@ -149,23 +140,19 @@ def build_dataset(data_dir, target_per_class=None, training=True):
     real_paths  = np.array(real_paths)
     real_labels = np.array(real_labels)
 
-    # Shuffle real images with fixed seed before any split
     idx = np.random.RandomState(SEED).permutation(len(real_paths))
     real_paths  = real_paths[idx]
     real_labels = real_labels[idx]
 
-    # ── Test mode: no split, no augmentation ─────────────────
     if not training:
         test_ds = ImageDataset(real_paths, real_labels, transform=val_transform)
         loader  = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
         return loader, cls_names, real_labels
 
-    # ── Train mode: split on real images first ────────────────
     split      = int(0.9 * len(real_paths))
     tr_paths   = real_paths[:split];  val_paths  = real_paths[split:]
     tr_labels  = real_labels[:split]; val_labels = real_labels[split:]
 
-    # Expand training split with augmented copies
     aug_paths, aug_labels = [], []
     if target_per_class is not None:
         label_to_paths = {}
@@ -193,7 +180,6 @@ def build_dataset(data_dir, target_per_class=None, training=True):
         print(f"  {name}: {n_r} real + {n_a} aug = {n_r+n_a} train | "
               f"{int(np.sum(val_labels==l))} val")
 
-    # aug_flags used to apply correct transform per sample
     train_ds = ImageDataset(all_tr_paths, all_tr_labels, transform=None, aug_flags=aug_flags)
 
     class SmartTransformDataset(Dataset):
@@ -219,7 +205,7 @@ print("Dataset builder ready")
 
 
 # ────────────────────────────────────────────────────────────────
-# MODEL: ViT via timm
+# MODEL
 # ────────────────────────────────────────────────────────────────
 def build_model(learning_rate=LR, dropout=0.3, trainable_backbone=False, l2_reg=1e-4):
     backbone = timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=0)
@@ -290,15 +276,14 @@ def run_epoch(model, loader, criterion, optimizer=None, training=True):
 
 
 def train_model(model, optimizer, criterion, train_loader, val_loader,
-                epochs, ckpt_name, patience=6):
-    """Train loop with early stopping and single best-model checkpoint."""
-    scheduler   = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',
-                                                        factor=0.5, patience=3,
-                                                        min_lr=1e-8, verbose=True)
-    best_val_acc   = 0.0
-    best_state     = None
-    epochs_no_imp  = 0
-    ckpt_path      = out_path(ckpt_name)
+                epochs, tmp_ckpt_name, patience=6):
+    """Train loop — saves only to a temp path, caller manages promotion/cleanup."""
+    scheduler  = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max',
+                                                       factor=0.5, patience=3,
+                                                       min_lr=1e-8, verbose=True)
+    best_val_acc  = 0.0
+    epochs_no_imp = 0
+    tmp_path      = out_path(tmp_ckpt_name)
 
     for epoch in range(1, epochs + 1):
         tr_loss, tr_acc   = run_epoch(model, train_loader, criterion, optimizer, training=True)
@@ -311,9 +296,7 @@ def train_model(model, optimizer, criterion, train_loader, val_loader,
 
         if val_acc > best_val_acc:
             best_val_acc  = val_acc
-            # Save only state_dict — much lighter than full model file
-            best_state    = copy.deepcopy(model.state_dict())
-            torch.save(best_state, ckpt_path)
+            torch.save(model.state_dict(), tmp_path)
             epochs_no_imp = 0
         else:
             epochs_no_imp += 1
@@ -321,15 +304,20 @@ def train_model(model, optimizer, criterion, train_loader, val_loader,
                 print(f"  Early stopping at epoch {epoch}")
                 break
 
-    # Restore best weights
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+    model.load_state_dict(torch.load(tmp_path, map_location=device))
     return model, best_val_acc
+
+
+def _cleanup(*paths):
+    for p in paths:
+        if p and os.path.exists(p):
+            os.remove(p)
 
 print("Training helpers ready")
 
 
 # ────────────────────────────────────────────────────────────────
-# TEST SET (built once, reused for all experiments)
+# TEST SET
 # ────────────────────────────────────────────────────────────────
 print("\nLoading test set...")
 try:
@@ -346,7 +334,6 @@ except FileNotFoundError as e:
 # ────────────────────────────────────────────────────────────────
 aug_targets = [5000, 10000, 20000, 50000]
 
-# FIX: much lower LRs for fine-tuning ViT params.
 phase2_configs = [
     {'lr': 1e-5,  'dropout': 0.40},
     {'lr': 5e-6,  'dropout': 0.45},
@@ -356,6 +343,10 @@ phase2_configs = [
 ]
 
 all_experiment_results = []
+
+# Tracks the single best model across ALL experiments
+global_best_val_acc = 0.0
+global_best_meta    = {}
 
 for target in aug_targets:
     print(f"\n{'='*65}")
@@ -371,49 +362,46 @@ for target in aug_targets:
         print(f"✗ Dataset not found: {e}. Skipping.")
         continue
 
-    # ── PHASE 1: Frozen backbone, train head only ─────────────
+    # ── PHASE 1: Frozen backbone ──────────────────────────────
     print(f"\nPhase 1: Training classification head | {target//1000}K")
     print("-"*55)
 
     model, optimizer, criterion = build_model(
         learning_rate=1e-3, dropout=0.3, trainable_backbone=False)
 
+    p1_tmp = f'_tmp_p1_{target//1000}k.pt'
     model, p1_best = train_model(
         model, optimizer, criterion,
         train_loader, val_loader,
         epochs=15,
-        ckpt_name=f'p1_{target//1000}k_best.pt',
+        tmp_ckpt_name=p1_tmp,
         patience=6)
     print(f"\nPhase 1 best val accuracy: {p1_best*100:.2f}%")
 
-    # ── PHASE 2: Gradual unfreeze with low LR ─────────────────
-    # Stage A → top 25% of layers only (4 epochs)
-    # Stage B → all layers at half the LR (6 epochs)
+    # ── PHASE 2: Gradual unfreeze ─────────────────────────────
     print(f"\nPhase 2: Fine-tuning | {target//1000}K")
     print("-"*55)
 
-    best_val_acc = 0.0
-    best_cfg_idx = None
-    best_config  = None
-    best_model   = None
-    exp_results  = []
+    exp_best_val_acc = 0.0
+    exp_best_cfg_idx = None
+    exp_best_config  = None
+    exp_best_model   = None
+    exp_results      = []
 
     for i, cfg in enumerate(phase2_configs):
         print(f"\n  Config {i+1}: lr={cfg['lr']} | dropout={cfg['dropout']}")
         print("  " + "-"*45)
 
-        # Reload Phase 1 best weights into a fresh model
         model, _, criterion = build_model(
             learning_rate=cfg['lr'], dropout=cfg['dropout'], trainable_backbone=False)
-        model.load_state_dict(torch.load(out_path(f'p1_{target//1000}k_best.pt'), map_location=device))
+        model.load_state_dict(torch.load(out_path(p1_tmp), map_location=device))
 
-        # Stage A: unfreeze top 25% of backbone layers
+        # Stage A: unfreeze top 25% of backbone
         backbone_layers = list(model.backbone.children())
         unfreeze_from   = int(len(backbone_layers) * 0.75)
         for j, layer in enumerate(backbone_layers):
             for param in layer.parameters():
                 param.requires_grad = (j >= unfreeze_from)
-        # Head always trainable
         for param in model.head.parameters():
             param.requires_grad = True
 
@@ -421,31 +409,31 @@ for target in aug_targets:
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=cfg['lr'], weight_decay=1e-4)
 
+        p2a_tmp = f'_tmp_p2a_{target//1000}k_cfg{i+1}.pt'
         model, val_a = train_model(
             model, optimizer_a, criterion,
             train_loader, val_loader,
             epochs=4,
-            ckpt_name=f'p2a_{target//1000}k_cfg{i+1}.pt',
+            tmp_ckpt_name=p2a_tmp,
             patience=4)
 
-        # Stage B: unfreeze ALL layers at half the LR
+        # Stage B: unfreeze ALL layers at half LR
         for param in model.parameters():
             param.requires_grad = True
 
         optimizer_b = optim.Adam(
             model.parameters(), lr=cfg['lr'] / 2, weight_decay=1e-4)
 
+        p2b_tmp = f'_tmp_p2b_{target//1000}k_cfg{i+1}.pt'
         model, val_b = train_model(
             model, optimizer_b, criterion,
             train_loader, val_loader,
             epochs=6,
-            ckpt_name=f'p2b_{target//1000}k_cfg{i+1}.pt',
+            tmp_ckpt_name=p2b_tmp,
             patience=4)
 
-        # Clean up stage A checkpoint to save space
-        stage_a_path = out_path(f'p2a_{target//1000}k_cfg{i+1}.pt')
-        if os.path.exists(stage_a_path):
-            os.remove(stage_a_path)
+        # Stage A temp no longer needed
+        _cleanup(out_path(p2a_tmp))
 
         val_acc = max(val_a, val_b)
         print(f"\n  Config {i+1} best val accuracy: {val_acc*100:.2f}%")
@@ -456,37 +444,47 @@ for target in aug_targets:
             'lr'        : cfg['lr'],
             'dropout'   : cfg['dropout'],
             'val_acc'   : val_acc,
-            'model_path': out_path(f'p2b_{target//1000}k_cfg{i+1}.pt')
         })
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            best_config  = cfg
-            best_cfg_idx = i + 1
-            best_model   = copy.deepcopy(model)
+        if val_acc > exp_best_val_acc:
+            exp_best_val_acc = val_acc
+            exp_best_config  = cfg
+            exp_best_cfg_idx = i + 1
+            exp_best_model   = copy.deepcopy(model)
 
-    # Clean up non-best p2b checkpoints to save space
-    for i in range(len(phase2_configs)):
-        if i + 1 != best_cfg_idx:
-            p = out_path(f'p2b_{target//1000}k_cfg{i+1}.pt')
-            if os.path.exists(p):
-                os.remove(p)
+        # Stage B temp no longer needed
+        _cleanup(out_path(p2b_tmp))
+
+    # Phase 1 temp no longer needed
+    _cleanup(out_path(p1_tmp))
+
+    # Promote to global best if this experiment wins
+    if exp_best_val_acc > global_best_val_acc:
+        global_best_val_acc = exp_best_val_acc
+        global_best_meta    = {
+            'target'    : target,
+            'config_idx': exp_best_cfg_idx,
+            'config'    : exp_best_config,
+            'val_acc'   : exp_best_val_acc,
+        }
+        torch.save(exp_best_model.state_dict(), BEST_CKPT)
+        print(f"\n  ★ New global best ({exp_best_val_acc*100:.2f}%) — saved to best_overall.pt")
 
     # ── Test evaluation ───────────────────────────────────────
     if test_loader is not None:
         print(f"\n{'='*55}")
-        print(f"Best config for {target//1000}K → Config {best_cfg_idx}: {best_config}")
-        print(f"Best val accuracy: {best_val_acc*100:.2f}%")
+        print(f"Best config for {target//1000}K → Config {exp_best_cfg_idx}: {exp_best_config}")
+        print(f"Best val accuracy: {exp_best_val_acc*100:.2f}%")
 
-        _, test_acc = run_epoch(best_model, test_loader, criterion, training=False)
+        _, test_acc = run_epoch(exp_best_model, test_loader, criterion, training=False)
         print(f"Test Accuracy ({target//1000}K): {test_acc*100:.2f}%")
 
-        best_model.eval()
+        exp_best_model.eval()
         all_preds = []
         with torch.no_grad():
             for imgs, _ in test_loader:
-                imgs = imgs.to(device)
-                preds = best_model(imgs).argmax(1).cpu().numpy()
+                imgs  = imgs.to(device)
+                preds = exp_best_model(imgs).argmax(1).cpu().numpy()
                 all_preds.extend(preds)
 
         y_pred  = np.array(all_preds)
@@ -503,28 +501,26 @@ for target in aug_targets:
         print(classification_report(true_labels, y_pred,
                                     target_names=class_names, digits=4))
 
+        # Confusion matrix — displayed only, never saved
         plt.figure(figsize=(14, 12))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                     xticklabels=class_names, yticklabels=class_names)
-        plt.title(f'Confusion Matrix — {target//1000}K (Best Config {best_cfg_idx})', fontsize=14)
+        plt.title(f'Confusion Matrix — {target//1000}K (Best Config {exp_best_cfg_idx})', fontsize=14)
         plt.xlabel('Predicted'); plt.ylabel('True')
         plt.xticks(rotation=45, ha='right'); plt.tight_layout()
-        plt.savefig(out_path(f'cm_{target//1000}k.png'), dpi=150)
+        plt.show()
         plt.close()
 
         for r in exp_results:
-            r['test_acc'] = test_acc if r['config_idx'] == best_cfg_idx else np.nan
+            r['test_acc'] = test_acc if r['config_idx'] == exp_best_cfg_idx else float('nan')
     else:
         print("Skipping test evaluation (dataset not available)")
 
     all_experiment_results.extend(exp_results)
 
-    # Clean up Phase 1 checkpoint after all Phase 2 configs done
-    p1_path = out_path(f'p1_{target//1000}k_best.pt')
-    if os.path.exists(p1_path):
-        os.remove(p1_path)
-
 print("\n\nAll experiments complete!")
+print(f"Global best model: {global_best_meta}")
+print(f"Checkpoint saved at: {BEST_CKPT}")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -553,11 +549,12 @@ if all_experiment_results:
           f"| lr={best_row['lr']} | dropout={best_row['dropout']} "
           f"| val_acc={best_row['val_acc']*100:.2f}%")
 
+    # Comparison bar chart — displayed only, never saved
     pivot = results_df.groupby('target')['val_acc'].max().reset_index()
     plt.figure(figsize=(8, 5))
     plt.bar([f"{t//1000}K" for t in pivot['target']], pivot['val_acc']*100, color='steelblue')
     plt.xlabel('Images per class'); plt.ylabel('Best Val Accuracy (%)')
     plt.title('Best Val Accuracy vs Augmentation Size')
     plt.ylim(50, 100); plt.tight_layout()
-    plt.savefig(out_path('aug_comparison.png'), dpi=150)
+    plt.show()
     plt.close()
