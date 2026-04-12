@@ -5,6 +5,10 @@
 
 import numpy as np
 import pandas as pd
+import os
+import matplotlib
+if not os.environ.get('DISPLAY'):
+    matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
@@ -16,7 +20,7 @@ import timm
 from sklearn.metrics import classification_report, confusion_matrix
 from pathlib import Path
 from PIL import Image
-import warnings, os, sys, copy
+import warnings, sys, copy
 
 warnings.filterwarnings('ignore')
 
@@ -501,14 +505,14 @@ for target in aug_targets:
         print(classification_report(true_labels, y_pred,
                                     target_names=class_names, digits=4))
 
-        # Confusion matrix — displayed only, never saved
+        # Confusion matrix saved to output directory (headless-safe)
         plt.figure(figsize=(14, 12))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                     xticklabels=class_names, yticklabels=class_names)
         plt.title(f'Confusion Matrix — {target//1000}K (Best Config {exp_best_cfg_idx})', fontsize=14)
         plt.xlabel('Predicted'); plt.ylabel('True')
         plt.xticks(rotation=45, ha='right'); plt.tight_layout()
-        plt.show()
+        plt.savefig(out_path(f'cm_{target//1000}k.png'), dpi=150)
         plt.close()
 
         for r in exp_results:
@@ -549,12 +553,12 @@ if all_experiment_results:
           f"| lr={best_row['lr']} | dropout={best_row['dropout']} "
           f"| val_acc={best_row['val_acc']*100:.2f}%")
 
-    # Comparison bar chart — displayed only, never saved
+    # Comparison bar chart saved to output directory (headless-safe)
     pivot = results_df.groupby('target')['val_acc'].max().reset_index()
     plt.figure(figsize=(8, 5))
     plt.bar([f"{t//1000}K" for t in pivot['target']], pivot['val_acc']*100, color='steelblue')
     plt.xlabel('Images per class'); plt.ylabel('Best Val Accuracy (%)')
     plt.title('Best Val Accuracy vs Augmentation Size')
     plt.ylim(50, 100); plt.tight_layout()
-    plt.show()
+    plt.savefig(out_path('aug_comparison.png'), dpi=150)
     plt.close()
