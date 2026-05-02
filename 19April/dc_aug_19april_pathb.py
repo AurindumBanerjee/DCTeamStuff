@@ -385,9 +385,13 @@ def _patch_attention(attn_module):
     attention weights in `attn_module.attn_weights` after each forward.
     This avoids rewriting timm internals.
     """
+    # Avoid wrapping the same module multiple times.
+    if getattr(attn_module, '_attn_patched_for_heatmap', False):
+        return
+
     original_forward = attn_module.forward
 
-    def patched_forward(x):
+    def patched_forward(x, *args, **kwargs):
         # Replicate timm attention forward, capturing weights
         B, N, C = x.shape
         qkv = attn_module.qkv(x).reshape(
@@ -405,6 +409,8 @@ def _patch_attention(attn_module):
         return x
 
     attn_module.forward = patched_forward
+    attn_module._attn_original_forward = original_forward
+    attn_module._attn_patched_for_heatmap = True
 
 print("Model builder ready")
 
